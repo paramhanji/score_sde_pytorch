@@ -16,8 +16,11 @@
 # pylint: skip-file
 """Return training and evaluation/test datasets from config files."""
 import jax
+from sklearn.datasets  import  make_moons
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import torch
+import torch.utils.data as torch_data
 
 
 def get_data_scaler(config):
@@ -142,6 +145,9 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
     dataset_builder = tf.data.TFRecordDataset(config.data.tfrecords_path)
     train_split_name = eval_split_name = 'train'
 
+  elif config.data.dataset == 'Toy2D':
+    pass
+
   else:
     raise NotImplementedError(
       f'Dataset {config.data.dataset} not yet supported.')
@@ -191,6 +197,20 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
     ds = ds.batch(batch_size, drop_remainder=True)
     return ds.prefetch(prefetch_size)
 
-  train_ds = create_dataset(dataset_builder, train_split_name)
-  eval_ds = create_dataset(dataset_builder, eval_split_name)
+  if config.data.dataset == 'Toy2D':
+    def get_loader(config, train):
+      n_samples, batch_size = (config.data.train_samples, config.training.batch_size) if train else (config.data.eval_samples, config.eval.batch_size)
+      ds = make_moons(n_samples)[0].astype('float32')[:,None,None,:]
+      ds = tf.data.Dataset.from_tensor_slices((ds - ds.mean(axis=0))/ds.std(axis=0))
+      ds = ds.map(lambda x: {'image': x})
+      ds = ds.repeat(count=num_epochs)
+      ds = ds.shuffle(shuffle_buffer_size)
+      ds = ds.batch(batch_size)
+      return ds.prefetch(prefetch_size)
+    train_ds = get_loader(config, train=True)
+    eval_ds = get_loader(config, train=False)
+    dataset_builder = None
+  else:
+    train_ds = create_dataset(dataset_builder, train_split_name)
+    eval_ds = create_dataset(dataset_builder, eval_split_name)
   return train_ds, eval_ds, dataset_builder

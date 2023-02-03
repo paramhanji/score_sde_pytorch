@@ -1,3 +1,6 @@
+import numpy as np
+import pandas as pd
+import plotly.express as px
 import torch
 import tensorflow as tf
 import os
@@ -27,3 +30,18 @@ def save_checkpoint(ckpt_dir, state):
     'step': state['step']
   }
   torch.save(saved_state, ckpt_dir)
+
+
+def save_gif(points, filename, num_highlight=5):
+    points = torch.stack(points).squeeze().detach().cpu().numpy()
+    n_steps, n_samples = points.shape[:2]
+    colors = np.zeros((n_steps, n_samples))
+    colors[:,-num_highlight:] = np.arange(1, num_highlight+1)
+
+    t = np.arange(n_steps).repeat(n_samples)
+    df = pd.DataFrame({'x': points[...,0].flatten(), 'y': points[...,1].flatten(), 't': t, 'color': colors.flatten()})
+    df.color = df.color.astype(str)
+
+    plot = px.scatter(df, x='x', y='y', animation_frame='t', color='color')
+    plot.update_layout(autosize=False, width=500, height=500)
+    plot.write_html(filename)

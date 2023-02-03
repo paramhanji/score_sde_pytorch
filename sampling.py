@@ -93,6 +93,12 @@ def get_sampling_fn(config, sde, shape, inverse_scaler, eps):
   """
 
   sampler_name = config.sampling.method
+  if config.sampling.store_intermediate:
+    assert sampler_name == 'pc' \
+           and config.sampling.predictor == 'ancestral_sampling' \
+           and config.sampling.corrector == 'none' \
+           and config.training.sde == 'vpsde', \
+           'Storing intermediate distributions not supported'
   # Probability flow ODE sampling with black-box ODE solvers
   if sampler_name.lower() == 'ode':
     sampling_fn = get_ode_sampler(sde=sde,
@@ -113,6 +119,7 @@ def get_sampling_fn(config, sde, shape, inverse_scaler, eps):
                                  snr=config.sampling.snr,
                                  n_steps=config.sampling.n_steps_each,
                                  probability_flow=config.sampling.probability_flow,
+                                 store_intermediate=config.sampling.store_intermediate,
                                  continuous=config.training.continuous,
                                  denoise=config.sampling.noise_removal,
                                  eps=eps,
@@ -204,11 +211,12 @@ class ReverseDiffusionPredictor(Predictor):
 class AncestralSamplingPredictor(Predictor):
   """The ancestral sampling predictor. Currently only supports VE/VP SDEs."""
 
-  def __init__(self, sde, score_fn, probability_flow=False):
+  def __init__(self, sde, score_fn, probability_flow=False, store_intermediate=False):
     super().__init__(sde, score_fn, probability_flow)
     if not isinstance(sde, sde_lib.VPSDE) and not isinstance(sde, sde_lib.VESDE):
       raise NotImplementedError(f"SDE class {sde.__class__.__name__} not yet supported.")
     assert not probability_flow, "Probability flow not supported by ancestral sampling"
+    self.store_intermediate = store_intermediate
 
   def vesde_update_fn(self, x, t):
     sde = self.sde
@@ -353,8 +361,8 @@ def shared_corrector_update_fn(x, t, sde, model, corrector, continuous, snr, n_s
 
 
 def get_pc_sampler(sde, shape, predictor, corrector, inverse_scaler, snr,
-                   n_steps=1, probability_flow=False, continuous=False,
-                   denoise=True, eps=1e-3, device='cuda'):
+                   n_steps=1, probability_flow=False, store_intermediate=False,
+                   continuous=False, denoise=True, eps=1e-3, device='cuda'):
   """Create a Predictor-Corrector (PC) sampler.
 
   Args:
@@ -366,6 +374,7 @@ def get_pc_sampler(sde, shape, predictor, corrector, inverse_scaler, snr,
     snr: A `float` number. The signal-to-noise ratio for configuring correctors.
     n_steps: An integer. The number of corrector steps per predictor update.
     probability_flow: If `True`, solve the reverse-time probability flow ODE when running the predictor.
+    store_intermediate: If `True`, store all intermediate diffusion steps
     continuous: `True` indicates that the score model was continuously trained.
     denoise: If `True`, add one-step denoising to the final samples.
     eps: A `float` number. The reverse-time SDE and ODE are integrated to `epsilon` to avoid numerical issues.
@@ -400,13 +409,19 @@ def get_pc_sampler(sde, shape, predictor, corrector, inverse_scaler, snr,
       x = sde.prior_sampling(shape).to(device)
       timesteps = torch.linspace(sde.T, eps, sde.N, device=device)
 
+      outputs = []
       for i in range(sde.N):
         t = timesteps[i]
         vec_t = torch.ones(shape[0], device=t.device) * t
         x, x_mean = corrector_update_fn(x, vec_t, model=model)
         x, x_mean = predictor_update_fn(x, vec_t, model=model)
+        if store_intermediate:
+          outputs.append(inverse_scaler(x_mean if denoise else x))
 
-      return inverse_scaler(x_mean if denoise else x), sde.N * (n_steps + 1)
+      if store_intermediate:
+        return outputs, sde.N * (n_steps + 1)
+      else:
+        return inverse_scaler(x_mean if denoise else x), sde.N * (n_steps + 1)
 
   return pc_sampler
 

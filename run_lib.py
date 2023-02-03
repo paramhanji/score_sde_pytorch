@@ -26,7 +26,7 @@ import tensorflow as tf
 import tensorflow_gan as tfgan
 import logging
 # Keep the import below for registering all model definitions
-from models import ddpm, ncsnv2, ncsnpp
+from models import ddpm, ncsnv2, ncsnpp, ddpm_small
 import losses
 import sampling
 from models import utils as mutils
@@ -39,7 +39,7 @@ from absl import flags
 import torch
 from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
-from utils import save_checkpoint, restore_checkpoint
+from utils import save_checkpoint, restore_checkpoint, save_gif
 
 FLAGS = flags.FLAGS
 
@@ -113,7 +113,7 @@ def train(config, workdir):
 
   # Building sampling functions
   if config.training.snapshot_sampling:
-    sampling_shape = (config.training.batch_size, config.data.num_channels,
+    sampling_shape = (config.data.eval_samples, config.data.num_channels,
                       config.data.image_size, config.data.image_size)
     sampling_fn = sampling.get_sampling_fn(config, sde, sampling_shape, inverse_scaler, sampling_eps)
 
@@ -160,16 +160,20 @@ def train(config, workdir):
         ema.restore(score_model.parameters())
         this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
         tf.io.gfile.makedirs(this_sample_dir)
-        nrow = int(np.sqrt(sample.shape[0]))
-        image_grid = make_grid(sample, nrow, padding=2)
-        sample = np.clip(sample.permute(0, 2, 3, 1).cpu().numpy() * 255, 0, 255).astype(np.uint8)
-        with tf.io.gfile.GFile(
-            os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
-          np.save(fout, sample)
+        if config.sampling.store_intermediate:
+          assert config.data.dataset == 'Toy2D', 'Only 2D distributions can be plotted'
+          save_gif(sample, os.path.join(this_sample_dir, 'trajectory.html'))
+        else:
+          nrow = int(np.sqrt(sample.shape[0]))
+          image_grid = make_grid(sample, nrow, padding=2)
+          sample = np.clip(sample.permute(0, 2, 3, 1).cpu().numpy() * 255, 0, 255).astype(np.uint8)
+          with tf.io.gfile.GFile(
+              os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
+            np.save(fout, sample)
 
-        with tf.io.gfile.GFile(
-            os.path.join(this_sample_dir, "sample.png"), "wb") as fout:
-          save_image(image_grid, fout)
+          with tf.io.gfile.GFile(
+              os.path.join(this_sample_dir, "sample.png"), "wb") as fout:
+            save_image(image_grid, fout)
 
 
 def evaluate(config,
