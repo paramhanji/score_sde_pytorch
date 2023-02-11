@@ -28,16 +28,15 @@ def get_config():
   training.continuous = False
   training.reduce_mean = True
   training.batch_size = 1024
-  training.n_iters = 50000
-  training.snapshot_freq = 5000
-  training.log_freq = 100
+  training.n_iters = 10000
+  training.snapshot_freq = 1000
+  training.log_freq = 25
   training.eval_freq = 1000
 
   # optimizer
   optim = config.optim
-  optim.lr = 1e-4
+  optim.lr = 1e-3
   optim.warmup = 0
-  optim.grad_clip = 1e6
 
   # sampling
   sampling = config.sampling
@@ -54,6 +53,7 @@ def get_config():
   data.eval_samples = 512
   data.num_channels = 2
   data.image_size = 1
+  data.noise = 0.05
 
   # model
   model = config.model
@@ -68,9 +68,8 @@ def get_config():
   # model.attn_resolutions = (16,)
   # model.resamp_with_conv = True
   model.conditional = True
-  model.beta_min = 1e-4
-  model.beta_max = 2e-2
-  model.num_scales = 100
+  model.beta_max = 5.
+  model.num_scales = 50
 
   # eval
   eval = config.eval
