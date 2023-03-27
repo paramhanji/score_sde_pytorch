@@ -17,10 +17,9 @@ class SDE(abc.ABC):
     self.N = N
 
   @property
-  @abc.abstractmethod
   def T(self):
     """End time of the SDE."""
-    pass
+    return 1
 
   @abc.abstractmethod
   def sde(self, x, t):
@@ -31,10 +30,8 @@ class SDE(abc.ABC):
     """Parameters to determine the marginal distribution of the SDE, $p_t(x)$."""
     pass
 
-  @abc.abstractmethod
   def prior_sampling(self, shape):
-    """Generate one sample from the prior distribution, $p_T(x)$."""
-    pass
+    return torch.randn(*shape)
 
   @abc.abstractmethod
   def prior_logp(self, z):
@@ -121,16 +118,11 @@ class VPSDE(SDE):
     super().__init__(N)
     self.beta_0 = beta_min
     self.beta_1 = beta_max
-    self.N = N
     self.discrete_betas = torch.linspace(beta_min / N, beta_max / N, N)
     self.alphas = 1. - self.discrete_betas
     self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
     self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
     self.sqrt_1m_alphas_cumprod = torch.sqrt(1. - self.alphas_cumprod)
-
-  @property
-  def T(self):
-    return 1
 
   def sde(self, x, t):
     beta_t = self.beta_0 + t * (self.beta_1 - self.beta_0)
@@ -143,9 +135,6 @@ class VPSDE(SDE):
     mean = torch.exp(log_mean_coeff[:, None, None, None]) * x
     std = torch.sqrt(1. - torch.exp(2. * log_mean_coeff))
     return mean, std
-
-  def prior_sampling(self, shape):
-    return torch.randn(*shape)
 
   def prior_logp(self, z):
     shape = z.shape
@@ -176,11 +165,6 @@ class subVPSDE(SDE):
     super().__init__(N)
     self.beta_0 = beta_min
     self.beta_1 = beta_max
-    self.N = N
-
-  @property
-  def T(self):
-    return 1
 
   def sde(self, x, t):
     beta_t = self.beta_0 + t * (self.beta_1 - self.beta_0)
@@ -194,9 +178,6 @@ class subVPSDE(SDE):
     mean = torch.exp(log_mean_coeff)[:, None, None, None] * x
     std = 1 - torch.exp(2. * log_mean_coeff)
     return mean, std
-
-  def prior_sampling(self, shape):
-    return torch.randn(*shape)
 
   def prior_logp(self, z):
     shape = z.shape
@@ -217,11 +198,6 @@ class VESDE(SDE):
     self.sigma_min = sigma_min
     self.sigma_max = sigma_max
     self.discrete_sigmas = torch.exp(torch.linspace(np.log(self.sigma_min), np.log(self.sigma_max), N))
-    self.N = N
-
-  @property
-  def T(self):
-    return 1
 
   def sde(self, x, t):
     sigma = self.sigma_min * (self.sigma_max / self.sigma_min) ** t

@@ -95,7 +95,6 @@ def get_sampling_fn(config, sde, shape, inverse_scaler, eps):
   sampler_name = config.sampling.method
   if config.sampling.store_intermediate:
     assert sampler_name == 'pc' \
-           and config.sampling.predictor == 'ancestral_sampling' \
            and config.sampling.corrector == 'none' \
            and config.training.sde == 'vpsde', \
            'Storing intermediate distributions not supported'
@@ -133,12 +132,13 @@ def get_sampling_fn(config, sde, shape, inverse_scaler, eps):
 class Predictor(abc.ABC):
   """The abstract class for a predictor algorithm."""
 
-  def __init__(self, sde, score_fn, probability_flow=False):
+  def __init__(self, sde, score_fn, probability_flow=False, store_intermediate=False):
     super().__init__()
     self.sde = sde
     # Compute the reverse SDE/ODE
     self.rsde = sde.reverse(score_fn, probability_flow)
     self.score_fn = score_fn
+    self.store_intermediate = store_intermediate
 
   @abc.abstractmethod
   def update_fn(self, x, t):
@@ -182,8 +182,8 @@ class Corrector(abc.ABC):
 
 @register_predictor(name='euler_maruyama')
 class EulerMaruyamaPredictor(Predictor):
-  def __init__(self, sde, score_fn, probability_flow=False):
-    super().__init__(sde, score_fn, probability_flow)
+  def __init__(self, sde, score_fn, probability_flow=False, store_intermediate=False):
+    super().__init__(sde, score_fn, probability_flow, store_intermediate)
 
   def update_fn(self, x, t):
     dt = -1. / self.rsde.N
@@ -212,11 +212,10 @@ class AncestralSamplingPredictor(Predictor):
   """The ancestral sampling predictor. Currently only supports VE/VP SDEs."""
 
   def __init__(self, sde, score_fn, probability_flow=False, store_intermediate=False):
-    super().__init__(sde, score_fn, probability_flow)
+    super().__init__(sde, score_fn, probability_flow, store_intermediate)
     if not isinstance(sde, sde_lib.VPSDE) and not isinstance(sde, sde_lib.VESDE):
       raise NotImplementedError(f"SDE class {sde.__class__.__name__} not yet supported.")
     assert not probability_flow, "Probability flow not supported by ancestral sampling"
-    self.store_intermediate = store_intermediate
 
   def vesde_update_fn(self, x, t):
     sde = self.sde
