@@ -20,7 +20,7 @@ import torch
 import torch.optim as optim
 import numpy as np
 from models import utils as mutils
-from sde_lib import VESDE, VPSDE
+from sde_lib import VESDE, VPSDE, LaplacianVPSDE
 
 
 def get_optimizer(config, params):
@@ -100,6 +100,26 @@ def get_sde_loss_fn(sde, train, reduce_mean=True, continuous=True, likelihood_we
 
   return loss_fn
 
+def get_sde_loss_fn_ssm(sde, train, eps=1e-5):
+  """Sliced score matching objective to be used when p(x_t|x_0) is not easy to compute/unkown.
+  Reference: https://arxiv.org/abs/1905.07088
+  Code: https://github.com/ermongroup/sliced_score_matching/blob/880c04744e3cf3c2ecaad61c3fb320ba7bbdb183/losses/sliced_sm.py#L123
+  """
+  def loss_fn(model, batch):
+    score_fn = mutils.get_score_fn(sde, model, train=train)
+    t = torch.rand(batch.shape[0], device=batch.device) * (sde.T - eps) + eps
+    batch = sde.forward_steps(batch, t)
+
+    vectors = torch.randn_like(batch)
+    score = score_fn(batch, t)
+    scorev = torch.sum(score * vectors)
+    loss1 = torch.sum(score * score, dim=-1) / 2.
+    grad = torch.autograd.grad(scorev, batch, create_graph=True)[0]
+    loss2 = torch.sum(vectors * grad, dim=-1)
+
+    return (loss1 + loss2).mean()
+
+  return loss_fn
 
 def get_smld_loss_fn(vesde, train, reduce_mean=False):
   """Legacy code to reproduce previous results on SMLD(NCSN). Not recommended for new work."""
@@ -163,8 +183,11 @@ def get_step_fn(sde, train, optimize_fn=None, reduce_mean=False, continuous=True
     A one-step function for training or evaluation.
   """
   if continuous:
-    loss_fn = get_sde_loss_fn(sde, train, reduce_mean=reduce_mean,
-                              continuous=True, likelihood_weighting=likelihood_weighting)
+    if isinstance(sde, LaplacianVPSDE):
+      loss_fn = get_sde_loss_fn_ssm(sde, train)
+    else:
+      loss_fn = get_sde_loss_fn(sde, train, reduce_mean=reduce_mean,
+                                continuous=True, likelihood_weighting=likelihood_weighting)
   else:
     assert not likelihood_weighting, "Likelihood weighting is not supported for original SMLD/DDPM training."
     if isinstance(sde, VESDE):
@@ -198,7 +221,7 @@ def get_step_fn(sde, train, optimize_fn=None, reduce_mean=False, continuous=True
       state['step'] += 1
       state['ema'].update(model.parameters())
     else:
-      with torch.no_grad():
+      # with torch.no_grad():
         ema = state['ema']
         ema.store(model.parameters())
         ema.copy_to(model.parameters())

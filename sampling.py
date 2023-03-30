@@ -95,8 +95,7 @@ def get_sampling_fn(config, sde, shape, inverse_scaler, eps):
   sampler_name = config.sampling.method
   if config.sampling.store_intermediate:
     assert sampler_name == 'pc' \
-           and config.sampling.corrector == 'none' \
-           and config.training.sde == 'vpsde', \
+           and config.sampling.corrector == 'none', \
            'Storing intermediate distributions not supported'
   # Probability flow ODE sampling with black-box ODE solvers
   if sampler_name.lower() == 'ode':
@@ -403,24 +402,24 @@ def get_pc_sampler(sde, shape, predictor, corrector, inverse_scaler, snr,
     Returns:
       Samples, number of function evaluations.
     """
-    with torch.no_grad():
+    # with torch.no_grad():
       # Initial sample
-      x = sde.prior_sampling(shape).to(device)
-      timesteps = torch.linspace(sde.T, eps, sde.N, device=device)
+    x = sde.prior_sampling(shape).to(device)
+    timesteps = torch.linspace(sde.T, eps, sde.N, device=device)
 
-      outputs = []
-      for i in range(sde.N):
-        t = timesteps[i]
-        vec_t = torch.ones(shape[0], device=t.device) * t
-        x, x_mean = corrector_update_fn(x, vec_t, model=model)
-        x, x_mean = predictor_update_fn(x, vec_t, model=model)
-        if store_intermediate:
-          outputs.append(inverse_scaler(x_mean if denoise else x))
-
+    outputs = []
+    for i in range(sde.N):
+      t = timesteps[i]
+      vec_t = torch.ones(shape[0], device=t.device) * t
+      x, x_mean = corrector_update_fn(x, vec_t, model=model)
+      x, x_mean = predictor_update_fn(x, vec_t, model=model)
       if store_intermediate:
-        return outputs, sde.N * (n_steps + 1)
-      else:
-        return inverse_scaler(x_mean if denoise else x), sde.N * (n_steps + 1)
+        outputs.append(inverse_scaler(x_mean if denoise else x))
+
+    if store_intermediate:
+      return outputs, sde.N * (n_steps + 1)
+    else:
+      return inverse_scaler(x_mean if denoise else x), sde.N * (n_steps + 1)
 
   return pc_sampler
 

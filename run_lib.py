@@ -97,6 +97,10 @@ def train(config, workdir):
   elif config.training.sde.lower() == 'vesde':
     sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
     sampling_eps = 1e-5
+  elif config.training.sde.lower() == 'laplacian':
+    sde = sde_lib.LaplacianVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales,
+                                 lmbda=config.model.lap_lambda, k=config.model.lap_k)
+    sampling_eps = 1e-3
   else:
     raise NotImplementedError(f"SDE {config.training.sde} unknown.")
 
@@ -167,7 +171,7 @@ def train(config, workdir):
         else:
           nrow = int(np.sqrt(sample.shape[0]))
           image_grid = make_grid(sample, nrow, padding=2)
-          sample = np.clip(sample.permute(0, 2, 3, 1).cpu().numpy() * 255, 0, 255).astype(np.uint8)
+          sample = np.clip(sample.permute(0, 2, 3, 1).detach().cpu().numpy() * 255, 0, 255).astype(np.uint8)
           with tf.io.gfile.GFile(
               os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
             np.save(fout, sample)

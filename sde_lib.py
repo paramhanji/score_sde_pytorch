@@ -2,6 +2,7 @@
 import abc
 import torch
 import numpy as np
+from sklearn.neighbors import KDTree
 
 
 class SDE(abc.ABC):
@@ -228,3 +229,73 @@ class VESDE(SDE):
     f = torch.zeros_like(x)
     G = torch.sqrt(sigma ** 2 - adjacent_sigma ** 2)
     return f, G
+
+
+def all_pairs_knn(points, k):
+    points_np = points.flatten(start_dim=1).detach().cpu().numpy()
+    tree = KDTree(points_np)
+    _, indices = tree.query(points_np, k+1)
+    indices = indices[:,1:]
+    return points[indices]
+
+class LaplacianVPSDE(VPSDE):
+  def __init__(self, N, beta_min, beta_max, lmbda, k, eps=1e-3):
+    super().__init__(beta_min=beta_min, beta_max=beta_max, N=N)
+    self.beta_0 = beta_min
+    self.beta_1 = beta_max
+    self.lmbda = lmbda
+    self.eps = eps
+    self.k = k
+
+  def compute_laplacians(self, points):
+    neighbors = all_pairs_knn(points, self.k)
+    # TODO: try other weights, e.g., cotangent
+    weights = torch.ones_like(neighbors)
+    laplacians = 1 / self.k * torch.sum(weights*(neighbors - points[:,None]), dim=1)
+    return laplacians
+
+  def sde(self, x, t):
+    drift, diffusion = super().sde(x, t)
+    # TODO: add laplacian term
+    laplacians = self.compute_laplacians(x)
+    drift = drift - self.lmbda*laplacians
+    return drift, diffusion
+
+  def discretize(self, x, t):
+    raise NotImplementedError()
+
+  def forward_steps(self, x, t):
+    # euler_maruyama update
+    def update_fn(self, x, t):
+      dt = 1. / self.N
+      z = torch.randn_like(x)
+      drift, diffusion = self.sde(x, t)
+      x_mean = x + drift * dt
+      x = x_mean + diffusion[:, None, None, None] * np.sqrt(dt) * z
+      return x, x_mean
+
+    timesteps = torch.linspace(self.eps, self.T, self.N, device=t.device)
+    x_t = torch.zeros_like(x)
+    prev_t = 0
+    for ts in timesteps:
+      vec_t = torch.ones(x.shape[0], device=t.device) * ts
+      x, _ = update_fn(self, x, vec_t)
+      sel = torch.logical_and(t > prev_t, t <= ts)
+      x_t[sel] = x[sel]
+      prev_t = ts
+
+    return x_t
+
+    # rtol, atol, method = 1e-5, 1e-5, 'RK45'
+    # def ode_func(t, x):
+    #   diffusion = self.sde(x, t)
+    #   mean, _ = self.marginal_prob(x, t)
+    #   x = from_flattened_numpy(x, shape).to(device).type(torch.float32)
+    #   vec_t = torch.ones(shape[0], device=x.device) * t
+    #   drift = drift_fn(model, x, vec_t)
+    #   return to_flattened_numpy(drift)
+
+    # # Black-box ODE solver for the probability flow ODE
+    # solutions = integrate.solve_ivp(ode_func, (sde.T, t.min()), to_flattened_numpy(x),
+    #                                 t_eval=torch.unique(t), rtol=rtol, atol=atol, method=method)
+    # return mean, std
