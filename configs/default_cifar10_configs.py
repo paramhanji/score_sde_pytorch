@@ -28,6 +28,7 @@ def get_default_configs():
 
   # evaluation
   config.eval = evaluate = ml_collections.ConfigDict()
+  evaluate.save_to_file = True
   evaluate.begin_ckpt = 9
   evaluate.end_ckpt = 26
   evaluate.batch_size = 1024

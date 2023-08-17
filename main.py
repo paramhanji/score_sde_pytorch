@@ -35,6 +35,8 @@ flags.mark_flags_as_required(["workdir", "config", "mode"])
 
 
 def main(argv):
+  logger = logging.getLogger()
+  logger.setLevel('INFO')
   if FLAGS.mode == "train":
     # Create the working directory
     tf.io.gfile.makedirs(FLAGS.workdir)
@@ -44,9 +46,7 @@ def main(argv):
     handler = logging.StreamHandler(gfile_stream)
     formatter = logging.Formatter('%(levelname)s - %(filename)s - %(asctime)s - %(message)s')
     handler.setFormatter(formatter)
-    logger = logging.getLogger()
     logger.addHandler(handler)
-    logger.setLevel('INFO')
     # Run the training pipeline
     run_lib.train(FLAGS.config, FLAGS.workdir)
   elif FLAGS.mode == "eval":

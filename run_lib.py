@@ -223,6 +223,10 @@ def evaluate(config,
   elif config.training.sde.lower() == 'vesde':
     sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
     sampling_eps = 1e-5
+  elif config.training.sde.lower() == 'laplacian':
+    sde = sde_lib.LaplacianVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales,
+                                 lmbda=config.model.lap_lambda, k=config.model.lap_k)
+    sampling_eps = 1e-3
   else:
     raise NotImplementedError(f"SDE {config.training.sde} unknown.")
 
@@ -263,9 +267,10 @@ def evaluate(config,
                       config.data.image_size, config.data.image_size)
     sampling_fn = sampling.get_sampling_fn(config, sde, sampling_shape, inverse_scaler, sampling_eps)
 
-  # Use inceptionV3 for images with resolution higher than 256.
-  inceptionv3 = config.data.image_size >= 256
-  inception_model = evaluation.get_inception_model(inceptionv3=inceptionv3)
+  if config.data.dataset != 'Toy2D':
+    # Use inceptionV3 for images with resolution higher than 256.
+    inceptionv3 = config.data.image_size >= 256
+    inception_model = evaluation.get_inception_model(inceptionv3=inceptionv3)
 
   begin_ckpt = config.eval.begin_ckpt
   logging.info("begin checkpoint: %d" % (begin_ckpt,))
@@ -304,12 +309,16 @@ def evaluate(config,
         if (i + 1) % 1000 == 0:
           logging.info("Finished %dth step loss evaluation" % (i + 1))
 
-      # Save loss values to disk or Google Cloud Storage
       all_losses = np.asarray(all_losses)
-      with tf.io.gfile.GFile(os.path.join(eval_dir, f"ckpt_{ckpt}_loss.npz"), "wb") as fout:
-        io_buffer = io.BytesIO()
-        np.savez_compressed(io_buffer, all_losses=all_losses, mean_loss=all_losses.mean())
-        fout.write(io_buffer.getvalue())
+
+      if config.eval.save_to_file:
+        # Save loss values to disk or Google Cloud Storage
+        with tf.io.gfile.GFile(os.path.join(eval_dir, f"ckpt_{ckpt}_loss.npz"), "wb") as fout:
+          io_buffer = io.BytesIO()
+          np.savez_compressed(io_buffer, all_losses=all_losses, mean_loss=all_losses.mean())
+          fout.write(io_buffer.getvalue())
+      else:
+        logging.info(f'ckpt: {ckpt}, mean_loss: {all_losses.mean()}')
 
     # Compute log-likelihoods (bits/dim) if enabled
     if config.eval.enable_bpd:
@@ -327,6 +336,7 @@ def evaluate(config,
           logging.info(
             "ckpt: %d, repeat: %d, batch: %d, mean bpd: %6f" % (ckpt, repeat, batch_id, np.mean(np.asarray(bpds))))
           bpd_round_id = batch_id + len(ds_bpd) * repeat
+        if config.eval.save_to_file:
           # Save bits/dim to disk or Google Cloud Storage
           with tf.io.gfile.GFile(os.path.join(eval_dir,
                                               f"{config.eval.bpd_dataset}_ckpt_{ckpt}_bpd_{bpd_round_id}.npz"),

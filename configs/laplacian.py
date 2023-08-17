@@ -54,7 +54,7 @@ def get_config():
   data.centered = False
   data.dataset = 'Toy2D'
   data.train_samples = 15000
-  data.eval_samples = 512
+  data.eval_samples = 4096
   data.num_channels = 2
   data.image_size = 1
   data.noise = 0.05
@@ -71,6 +71,13 @@ def get_config():
 
   # eval
   eval = config.eval
+  eval.save_to_file = False
   eval.batch_size = 4096
+  eval.enable_loss = True
+  eval.enable_bpd = True
+  eval.bpd_dataset = 'test'
+  eval.enable_sampling = False
+  eval.begin_ckpt = 1
+  eval.end_ckpt = 10
 
   return config
