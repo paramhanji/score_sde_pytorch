@@ -199,8 +199,9 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
   if config.data.dataset == 'Toy2D':
     def get_loader(config, train):
-      n_samples, batch_size = (config.data.train_samples, config.training.batch_size) if train else (config.data.eval_samples, config.eval.batch_size)
-      ds = make_moons(n_samples, noise=config.data.noise)[0].astype('float32')[:,None,None,:]
+      n_samples = config.data.train_samples + config.data.eval_samples
+      ds = make_moons(n_samples, noise=config.data.noise, random_state=config.seed)[0].astype('float32')[:,None,None,:]
+      ds, batch_size = (ds[:config.data.train_samples], config.training.batch_size) if train else (ds[config.data.train_samples:], config.eval.batch_size)
       ds = tf.data.Dataset.from_tensor_slices((ds - ds.mean(axis=0))/ds.std(axis=0))
       ds = ds.map(lambda x: {'image': x})
       ds = ds.repeat(count=num_epochs)

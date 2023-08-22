@@ -238,6 +238,13 @@ def all_pairs_knn(points, k):
     indices = indices[:,1:]
     return points[indices]
 
+def all_pairs_knn_torch(points, k):
+    points_flattened = points.flatten(start_dim=1)
+    distance_matrix = torch.cdist(points_flattened, points_flattened, p=2)
+    _, indices = torch.topk(distance_matrix, k + 1, dim=0, largest = False)
+    indices = indices[1:].T
+    return points[indices]
+
 class LaplacianVPSDE(VPSDE):
   def __init__(self, N, beta_min, beta_max, lmbda, k, eps=1e-3):
     super().__init__(beta_min=beta_min, beta_max=beta_max, N=N)
@@ -248,7 +255,8 @@ class LaplacianVPSDE(VPSDE):
     self.k = k
 
   def compute_laplacians(self, points):
-    neighbors = all_pairs_knn(points, self.k)
+    # neighbors = all_pairs_knn(points, self.k)
+    neighbors = all_pairs_knn_torch(points, self.k)
     # TODO: try other weights, e.g., cotangent
     weights = torch.ones_like(neighbors)
     laplacians = 1 / self.k * torch.sum(weights*(neighbors - points[:,None]), dim=1)
@@ -259,6 +267,7 @@ class LaplacianVPSDE(VPSDE):
     # TODO: add laplacian term
     laplacians = self.compute_laplacians(x)
     drift = drift - self.lmbda*laplacians
+    # drift = drift - self.lmbda*torch.einsum('i...,i...->i...', t, laplacians)
     return drift, diffusion
 
   def discretize(self, x, t):

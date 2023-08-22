@@ -38,14 +38,14 @@ import likelihood
 import sde_lib
 from absl import flags
 import torch
-from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
 from utils import save_checkpoint, restore_checkpoint, save_gif
+import mmd
 
 FLAGS = flags.FLAGS
 
 
-def train(config, workdir):
+def train(config, workdir, writer):
   """Runs the training pipeline.
 
   Args:
@@ -57,10 +57,6 @@ def train(config, workdir):
   # Create directories for experimental logs
   sample_dir = os.path.join(workdir, "samples")
   tf.io.gfile.makedirs(sample_dir)
-
-  tb_dir = os.path.join(workdir, "tensorboard")
-  tf.io.gfile.makedirs(tb_dir)
-  writer = tensorboard.SummaryWriter(tb_dir)
 
   # Initialize model.
   score_model = mutils.create_model(config)
@@ -136,7 +132,7 @@ def train(config, workdir):
     loss = train_step_fn(state, batch)
     if step % config.training.log_freq == 0:
       logging.info("step: %d, training_loss: %.5e" % (step, loss.item()))
-      writer.add_scalar("training_loss", loss, step)
+      writer.add_scalar("training_loss", loss.item(), step)
 
     # Save a temporary checkpoint to resume training after pre-emption periodically
     if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
@@ -161,7 +157,8 @@ def train(config, workdir):
       if config.training.snapshot_sampling:
         ema.store(score_model.parameters())
         ema.copy_to(score_model.parameters())
-        sample, n = sampling_fn(score_model)
+        with torch.no_grad():
+          sample, n = sampling_fn(score_model)
         ema.restore(score_model.parameters())
         this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
         tf.io.gfile.makedirs(this_sample_dir)
@@ -181,9 +178,7 @@ def train(config, workdir):
             save_image(image_grid, fout)
 
 
-def evaluate(config,
-             workdir,
-             eval_folder="eval"):
+def evaluate(config, workdir, writer, eval_folder="eval"):
   """Evaluate trained models.
 
   Args:
@@ -261,7 +256,7 @@ def evaluate(config,
     likelihood_fn = likelihood.get_likelihood_fn(sde, inverse_scaler)
 
   # Build the sampling function when sampling is enabled
-  if config.eval.enable_sampling:
+  if config.eval.enable_sampling or config.eval.enable_mmd:
     sampling_shape = (config.eval.batch_size,
                       config.data.num_channels,
                       config.data.image_size, config.data.image_size)
@@ -319,6 +314,7 @@ def evaluate(config,
           fout.write(io_buffer.getvalue())
       else:
         logging.info(f'ckpt: {ckpt}, mean_loss: {all_losses.mean()}')
+      writer.add_scalar("test/loss", all_losses.mean(), ckpt)
 
     # Compute log-likelihoods (bits/dim) if enabled
     if config.eval.enable_bpd:
@@ -336,14 +332,38 @@ def evaluate(config,
           logging.info(
             "ckpt: %d, repeat: %d, batch: %d, mean bpd: %6f" % (ckpt, repeat, batch_id, np.mean(np.asarray(bpds))))
           bpd_round_id = batch_id + len(ds_bpd) * repeat
-        if config.eval.save_to_file:
-          # Save bits/dim to disk or Google Cloud Storage
-          with tf.io.gfile.GFile(os.path.join(eval_dir,
-                                              f"{config.eval.bpd_dataset}_ckpt_{ckpt}_bpd_{bpd_round_id}.npz"),
-                                 "wb") as fout:
-            io_buffer = io.BytesIO()
-            np.savez_compressed(io_buffer, bpd)
-            fout.write(io_buffer.getvalue())
+          if config.eval.save_to_file:
+            # Save bits/dim to disk or Google Cloud Storage
+            with tf.io.gfile.GFile(os.path.join(eval_dir,
+                                                f"{config.eval.bpd_dataset}_ckpt_{ckpt}_bpd_{bpd_round_id}.npz"),
+                                  "wb") as fout:
+              io_buffer = io.BytesIO()
+              np.savez_compressed(io_buffer, bpd)
+              fout.write(io_buffer.getvalue())
+      writer.add_scalar(f"{config.eval.bpd_dataset}/bpd", np.mean(bpds), ckpt)
+
+    if config.eval.enable_mmd:
+      generated = []
+      num_sampling_rounds = config.data.eval_samples // config.eval.batch_size + 1
+      for r in range(num_sampling_rounds):
+        with torch.no_grad():
+          samples, n = sampling_fn(score_model)
+        generated.extend(samples)
+      generated = torch.cat(generated)
+
+      ground_truth = []
+      eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
+      for i, batch in enumerate(eval_iter):
+        eval_batch = torch.from_numpy(batch['image']._numpy()).to(config.device).float()
+        eval_batch = eval_batch.permute(0, 3, 1, 2)
+        eval_batch = scaler(eval_batch)
+        ground_truth.append(eval_batch)
+      ground_truth = torch.cat(ground_truth)
+      mmd_score = mmd.batched_mmd(generated.squeeze().cpu().numpy(), ground_truth.squeeze().cpu().numpy())
+      # mmd_fn = mmd.MMD_loss()
+      # mmd_score = mmd_fn(generated.reshape(32, 2, 1, 1), ground_truth.reshape(32, 2, 1, 1))
+      logging.info(f'ckpt: {ckpt}, mmd: {mmd_score}')
+      writer.add_scalar('test/mmd', mmd_score, ckpt)
 
     # Generate samples and compute IS/FID/KID when enabled
     if config.eval.enable_sampling:

@@ -66,13 +66,13 @@ def get_config():
   model.conditional = True
   model.beta_max = 5.
   model.num_scales = 50
-  model.lap_lambda = 10.
+  model.lap_lambda = 5.
   model.lap_k = 10
 
   # eval
   eval = config.eval
   eval.save_to_file = False
-  eval.batch_size = 4096
+  eval.batch_size = 1024
   eval.enable_loss = True
   eval.enable_bpd = True
   eval.bpd_dataset = 'test'

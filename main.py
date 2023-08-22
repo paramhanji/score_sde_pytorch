@@ -22,6 +22,10 @@ from ml_collections.config_flags import config_flags
 import logging
 import os
 import tensorflow as tf
+import random
+import numpy as np
+import torch
+from torch.utils import tensorboard
 
 FLAGS = flags.FLAGS
 
@@ -37,9 +41,20 @@ flags.mark_flags_as_required(["workdir", "config", "mode"])
 def main(argv):
   logger = logging.getLogger()
   logger.setLevel('INFO')
+  np.random.seed(FLAGS.config.seed)
+  random.seed(FLAGS.config.seed)
+  torch.manual_seed(FLAGS.config.seed)
+  torch.cuda.manual_seed(FLAGS.config.seed)
+  os.environ["PYTHONHASHSEED"] = str(FLAGS.config.seed)
+  tf.random.set_seed(FLAGS.config.seed)
+  tf.experimental.numpy.random.seed(FLAGS.config.seed)
+  tf.random.set_seed(FLAGS.config.seed)
+
+  tb_dir = os.path.join(FLAGS.workdir, "tensorboard")
+  tf.io.gfile.makedirs(tb_dir)
+  writer = tensorboard.SummaryWriter(tb_dir)
+
   if FLAGS.mode == "train":
-    # Create the working directory
-    tf.io.gfile.makedirs(FLAGS.workdir)
     # Set logger so that it outputs to both console and file
     # Make logging work for both disk and Google Cloud Storage
     gfile_stream = open(os.path.join(FLAGS.workdir, 'stdout.txt'), 'w')
@@ -48,10 +63,11 @@ def main(argv):
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     # Run the training pipeline
-    run_lib.train(FLAGS.config, FLAGS.workdir)
+    run_lib.train(FLAGS.config, FLAGS.workdir, writer)
+    run_lib.evaluate(FLAGS.config, FLAGS.workdir, writer, FLAGS.eval_folder)
   elif FLAGS.mode == "eval":
     # Run the evaluation pipeline
-    run_lib.evaluate(FLAGS.config, FLAGS.workdir, FLAGS.eval_folder)
+    run_lib.evaluate(FLAGS.config, FLAGS.workdir, writer, FLAGS.eval_folder)
   else:
     raise ValueError(f"Mode {FLAGS.mode} not recognized.")
 
