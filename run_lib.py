@@ -40,7 +40,7 @@ from absl import flags
 import torch
 from torchvision.utils import make_grid, save_image
 from utils import save_checkpoint, restore_checkpoint, save_gif
-import mmd
+import metrics
 
 FLAGS = flags.FLAGS
 
@@ -113,12 +113,27 @@ def train(config, workdir, writer):
                                     likelihood_weighting=likelihood_weighting)
 
   # Building sampling functions
-  if config.training.snapshot_sampling:
-    sampling_shape = (config.data.eval_samples, config.data.num_channels,
+  if config.training.snapshot_sampling or config.eval.enable_stats:
+    sampling_shape = (config.eval.batch_size, config.data.num_channels,
                       config.data.image_size, config.data.image_size)
     sampling_fn = sampling.get_sampling_fn(config, sde, sampling_shape, inverse_scaler, sampling_eps)
 
   num_train_steps = config.training.n_iters
+
+  if config.eval.enable_bpd or config.eval.enable_stats:
+    likelihood_fn = likelihood.get_likelihood_fn(sde, inverse_scaler)
+    # Create data loaders for likelihood evaluation. Only evaluate on uniformly dequantized data
+    train_ds_bpd, eval_ds_bpd, _ = datasets.get_dataset(config,
+                                                        uniform_dequantization=True, evaluation=True)
+    if config.eval.bpd_dataset.lower() == 'train':
+      ds_bpd = train_ds_bpd
+      bpd_num_repeats = 1
+    elif config.eval.bpd_dataset.lower() == 'test':
+      # Go over the dataset 5 times when computing likelihood on the test dataset
+      ds_bpd = eval_ds_bpd
+      bpd_num_repeats = 5
+    else:
+      raise ValueError(f"No bpd dataset {config.eval.bpd_dataset} recognized.")
 
   # In case there are multiple hosts (e.g., TPU pods), only log to host 0
   logging.info("Starting training loop at step %d." % (initial_step,))
@@ -139,13 +154,35 @@ def train(config, workdir, writer):
       save_checkpoint(checkpoint_meta_dir, state)
 
     # Report the loss on an evaluation dataset periodically
-    if step % config.training.eval_freq == 0:
+    if step != 0 and step % config.training.eval_freq == 0:
       eval_batch = torch.from_numpy(next(eval_iter)['image']._numpy()).to(config.device).float()
       eval_batch = eval_batch.permute(0, 3, 1, 2)
       eval_batch = scaler(eval_batch)
-      eval_loss = eval_step_fn(state, eval_batch)
-      logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
-      writer.add_scalar("eval_loss", eval_loss.item(), step)
+      if config.eval.enable_loss:
+        eval_loss = eval_step_fn(state, eval_batch)
+        logging.info("step: %d, val_loss: %.5e" % (step, eval_loss.item()))
+        writer.add_scalar("val/loss", eval_loss.item(), step)
+      if config.eval.enable_bpd:
+        ema.store(score_model.parameters())
+        ema.copy_to(score_model.parameters())
+        bpds = metrics.compute_bpd(ds_bpd, scaler, likelihood_fn, score_model, bpd_num_repeats)
+        ema.restore(score_model.parameters())
+        logging.info("step: %d, val_bpd: %.5e" % (step, np.mean(bpds)))
+        writer.add_scalar("val/nll", np.mean(bpds), step)
+      if config.eval.enable_stats:
+        ema.store(score_model.parameters())
+        ema.copy_to(score_model.parameters())
+        stats = metrics.compute_stats(ds_bpd, scaler, sampling_fn, score_model, config.sampling.store_intermediate)
+        ema.restore(score_model.parameters())
+
+        logging.info(f"step: {step}, "
+                     f"MMD: {np.mean(stats['mmd']):.5e}, "
+                     f"Energy: {np.mean(stats['energy']):.5e}, "
+                     f"FR: {np.mean(stats['fr']):.5e}")
+        writer.add_scalar("val/mmd", np.mean(stats['mmd']), step)
+        writer.add_scalar("val/energy", np.mean(stats['energy']), step)
+        writer.add_scalar("val/fr", np.mean(stats['fr']), step)
+
 
     # Save a checkpoint periodically and generate samples if needed
     if step != 0 and step % config.training.snapshot_freq == 0 or step == num_train_steps:

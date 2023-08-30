@@ -64,7 +64,7 @@ def main(argv):
     logger.addHandler(handler)
     # Run the training pipeline
     run_lib.train(FLAGS.config, FLAGS.workdir, writer)
-    run_lib.evaluate(FLAGS.config, FLAGS.workdir, writer, FLAGS.eval_folder)
+    # run_lib.evaluate(FLAGS.config, FLAGS.workdir, writer, FLAGS.eval_folder)
   elif FLAGS.mode == "eval":
     # Run the evaluation pipeline
     run_lib.evaluate(FLAGS.config, FLAGS.workdir, writer, FLAGS.eval_folder)

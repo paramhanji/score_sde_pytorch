@@ -36,7 +36,7 @@ def get_default_configs():
   evaluate.num_samples = 50000
   evaluate.enable_loss = True
   evaluate.enable_bpd = False
-  evaluate.enable_mmd = False
+  evaluate.enable_stats = False
   evaluate.bpd_dataset = 'test'
 
   # data
