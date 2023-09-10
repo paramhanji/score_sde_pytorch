@@ -13,8 +13,9 @@ def compute_bpd(ds, scaler, likelihood_fn, score_model, bpd_num_repeats, device=
       eval_batch = torch.from_numpy(batch['image']._numpy()).to(device).float()
       eval_batch = eval_batch.permute(0, 3, 1, 2)
       eval_batch = scaler(eval_batch)
-      bpd = likelihood_fn(score_model, eval_batch)[0]
-      bpd = bpd.detach().cpu().numpy().reshape(-1)
+      with torch.no_grad():
+        bpd = likelihood_fn(score_model, eval_batch)[0]
+      bpd = bpd.cpu().numpy().reshape(-1)
       bpds.extend(bpd)
 
   return bpds

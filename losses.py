@@ -118,14 +118,19 @@ def get_sde_loss_fn_ssm(sde, train, eps=1e-5, vr=False, noise='gaussian'):
     else:
       raise ValueError('Noise type not implemented')
 
+    if not train:
+      torch.set_grad_enabled(True)
     score = score_fn(batch, t)
     scorev = torch.sum(score * vectors)
+    grad = torch.autograd.grad(scorev, batch, create_graph=True)[0]
+    if not train:
+      torch.set_grad_enabled(False)
+    loss2 = torch.sum(vectors * grad, dim=-1)
+
     if vr:
       loss1 = torch.sum(score * vectors, dim=-1) ** 2 * 0.5
     else:
       loss1 = torch.sum(score * score, dim=-1) / 2.
-    grad = torch.autograd.grad(scorev, batch, create_graph=True)[0]
-    loss2 = torch.sum(vectors * grad, dim=-1)
 
     return (loss1 + loss2).mean()
 
@@ -231,7 +236,7 @@ def get_step_fn(sde, train, optimize_fn=None, reduce_mean=False, continuous=True
       state['step'] += 1
       state['ema'].update(model.parameters())
     else:
-      # with torch.no_grad():
+      with torch.no_grad():
         ema = state['ema']
         ema.store(model.parameters())
         ema.copy_to(model.parameters())

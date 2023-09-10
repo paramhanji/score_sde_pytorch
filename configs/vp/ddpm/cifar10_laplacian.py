@@ -24,14 +24,15 @@ def get_config():
 
   # training
   training = config.training
-  training.sde = 'vpsde'
-  training.continuous = False
+  training.sde = 'laplacian'
+  training.continuous = True
   training.reduce_mean = True
+  training.batch_size = 32
 
   # sampling
   sampling = config.sampling
   sampling.method = 'pc'
-  sampling.predictor = 'ancestral_sampling'
+  sampling.predictor = 'euler_maruyama'
   sampling.corrector = 'none'
   sampling.store_intermediate = False
 
@@ -52,5 +53,12 @@ def get_config():
   model.attn_resolutions = (16,)
   model.resamp_with_conv = True
   model.conditional = True
+
+  model.lap_lambda = 0.
+  model.lap_k = 10
+
+  # Evaluation
+  eval = config.eval
+  eval.batch_size = 32
 
   return config
