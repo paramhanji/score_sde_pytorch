@@ -264,10 +264,14 @@ class LaplacianVPSDE(VPSDE):
 
   def sde(self, x, t):
     drift, diffusion = super().sde(x, t)
-    # TODO: add laplacian term
-    laplacians = self.compute_laplacians(x)
-    drift = drift - self.lmbda*laplacians
-    # drift = drift - self.lmbda*torch.einsum('i...,i...->i...', t, laplacians)
+    if self.lmbda != 0:
+      laplacians = self.compute_laplacians(x)
+      drift = drift - self.lmbda*laplacians
+      # laplacians = laplacians/laplacians.norm(p=2, dim=(1,2,3), keepdim=True)
+      # drift = drift - (1-t.reshape(-1, 1, 1, 1))*self.lmbda*laplacians
+      # s_fun = lambda x, beta: 1 / (1 + (x/(1-x))**(-beta))
+      # drift = drift - s_fun(1-t.reshape(-1, 1, 1, 1), 2)*self.lmbda*laplacians
+      # drift = drift - self.lmbda*torch.einsum('i...,i...->i...', t, laplacians)
     return drift, diffusion
 
   def discretize(self, x, t):

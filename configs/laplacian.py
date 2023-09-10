@@ -66,7 +66,7 @@ def get_config():
   model.conditional = True
   model.beta_max = 5.
   model.num_scales = 50
-  model.lap_lambda = 5.
+  model.lap_lambda = 1.
   model.lap_k = 10
 
   # eval
@@ -79,5 +79,6 @@ def get_config():
   eval.enable_sampling = False
   eval.begin_ckpt = 1
   eval.end_ckpt = 10
+  eval.enable_stats = True
 
   return config

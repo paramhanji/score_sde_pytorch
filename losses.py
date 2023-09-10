@@ -100,7 +100,7 @@ def get_sde_loss_fn(sde, train, reduce_mean=True, continuous=True, likelihood_we
 
   return loss_fn
 
-def get_sde_loss_fn_ssm(sde, train, eps=1e-5):
+def get_sde_loss_fn_ssm(sde, train, eps=1e-5, vr=False, noise='gaussian'):
   """Sliced score matching objective to be used when p(x_t|x_0) is not easy to compute/unkown.
   Reference: https://arxiv.org/abs/1905.07088
   Code: https://github.com/ermongroup/sliced_score_matching/blob/880c04744e3cf3c2ecaad61c3fb320ba7bbdb183/losses/sliced_sm.py#L123
@@ -111,9 +111,19 @@ def get_sde_loss_fn_ssm(sde, train, eps=1e-5):
     batch = sde.forward_steps(batch, t)
 
     vectors = torch.randn_like(batch)
+    if noise == 'rademacher':
+      vectors = vectors.sign()
+    elif noise in ('gaussian', 'normal'):
+      pass
+    else:
+      raise ValueError('Noise type not implemented')
+
     score = score_fn(batch, t)
     scorev = torch.sum(score * vectors)
-    loss1 = torch.sum(score * score, dim=-1) / 2.
+    if vr:
+      loss1 = torch.sum(score * vectors, dim=-1) ** 2 * 0.5
+    else:
+      loss1 = torch.sum(score * score, dim=-1) / 2.
     grad = torch.autograd.grad(scorev, batch, create_graph=True)[0]
     loss2 = torch.sum(vectors * grad, dim=-1)
 

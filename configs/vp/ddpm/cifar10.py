@@ -27,12 +27,14 @@ def get_config():
   training.sde = 'vpsde'
   training.continuous = False
   training.reduce_mean = True
+  training.batch_size = 64
 
   # sampling
   sampling = config.sampling
   sampling.method = 'pc'
   sampling.predictor = 'ancestral_sampling'
   sampling.corrector = 'none'
+  sampling.store_intermediate = False
 
   # data
   data = config.data
