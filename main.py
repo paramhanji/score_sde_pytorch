@@ -35,8 +35,7 @@ flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_enum("mode", None, ["train", "eval"], "Running mode: train or eval")
 flags.DEFINE_string("eval_folder", "eval",
                     "The folder name for storing evaluation results")
-flags.mark_flags_as_required(["workdir", "config", "mode"])
-
+flags.mark_flags_as_required(["config"])
 
 def main(argv):
   gpus = tf.config.list_physical_devices('GPU')
@@ -60,26 +59,39 @@ def main(argv):
   tf.experimental.numpy.random.seed(FLAGS.config.seed)
   tf.random.set_seed(FLAGS.config.seed)
 
-  tb_dir = os.path.join(FLAGS.workdir, "tensorboard")
+  if FLAGS.workdir is not None:
+    workdir = FLAGS.workdir
+  elif 'workdir' in FLAGS.config:
+    workdir = FLAGS.config.workdir
+  else:
+    raise RuntimeError('workdir not specified in CLI or config')
+  tb_dir = os.path.join(workdir, "tensorboard")
   tf.io.gfile.makedirs(tb_dir)
   writer = tensorboard.SummaryWriter(tb_dir)
 
-  if FLAGS.mode == "train":
+  if FLAGS.mode is not None:
+    mode = FLAGS.mode
+  elif 'mode' in FLAGS.config:
+    mode = FLAGS.config.mode
+  else:
+    raise RuntimeError('mode not specified in CLI or config')
+  
+  if mode == "train":
     # Set logger so that it outputs to both console and file
     # Make logging work for both disk and Google Cloud Storage
-    gfile_stream = open(os.path.join(FLAGS.workdir, 'stdout.txt'), 'w')
+    gfile_stream = open(os.path.join(workdir, 'stdout.txt'), 'w')
     handler = logging.StreamHandler(gfile_stream)
     formatter = logging.Formatter('%(levelname)s - %(filename)s - %(asctime)s - %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     # Run the training pipeline
-    run_lib.train(FLAGS.config, FLAGS.workdir, writer)
+    run_lib.train(FLAGS.config, workdir, writer)
     # run_lib.evaluate(FLAGS.config, FLAGS.workdir, writer, FLAGS.eval_folder)
-  elif FLAGS.mode == "eval":
+  elif mode == "eval":
     # Run the evaluation pipeline
-    run_lib.evaluate(FLAGS.config, FLAGS.workdir, writer, FLAGS.eval_folder)
+    run_lib.evaluate(FLAGS.config, workdir, writer, FLAGS.eval_folder)
   else:
-    raise ValueError(f"Mode {FLAGS.mode} not recognized.")
+    raise ValueError(f"Mode {mode} not recognized.")
 
 
 if __name__ == "__main__":

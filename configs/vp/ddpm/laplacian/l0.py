@@ -16,18 +16,24 @@
 # Lint as: python3
 """Config file for reproducing the results of DDPM on cifar-10."""
 
+import os.path as osp
+
 from configs.default_cifar10_configs import get_default_configs
 
 
 def get_config():
   config = get_default_configs()
+  config.name = 'l0'
+  config.workdir = osp.join('logs', config.name)
+  config.mode = 'train'
 
   # training
   training = config.training
   training.sde = 'laplacian'
   training.continuous = True
   training.reduce_mean = True
-  training.batch_size = 32
+  training.batch_size = 128
+  training.eval_freq = 500
 
   # sampling
   sampling = config.sampling
@@ -59,6 +65,6 @@ def get_config():
 
   # Evaluation
   eval = config.eval
-  eval.batch_size = 32
+  eval.batch_size = 128
 
   return config
