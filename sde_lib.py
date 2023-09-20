@@ -225,7 +225,7 @@ class VESDE(SDE):
     timestep = (t * (self.N - 1) / self.T).long()
     sigma = self.discrete_sigmas.to(t.device)[timestep]
     adjacent_sigma = torch.where(timestep == 0, torch.zeros_like(t),
-                                 self.discrete_sigmas[timestep - 1].to(t.device))
+                                 self.discrete_sigmas.to(t.device)[timestep - 1].to(t.device))
     f = torch.zeros_like(x)
     G = torch.sqrt(sigma ** 2 - adjacent_sigma ** 2)
     return f, G
@@ -299,16 +299,49 @@ class LaplacianVPSDE(VPSDE):
 
     return x_t
 
-    # rtol, atol, method = 1e-5, 1e-5, 'RK45'
-    # def ode_func(t, x):
-    #   diffusion = self.sde(x, t)
-    #   mean, _ = self.marginal_prob(x, t)
-    #   x = from_flattened_numpy(x, shape).to(device).type(torch.float32)
-    #   vec_t = torch.ones(shape[0], device=x.device) * t
-    #   drift = drift_fn(model, x, vec_t)
-    #   return to_flattened_numpy(drift)
 
-    # # Black-box ODE solver for the probability flow ODE
-    # solutions = integrate.solve_ivp(ode_func, (sde.T, t.min()), to_flattened_numpy(x),
-    #                                 t_eval=torch.unique(t), rtol=rtol, atol=atol, method=method)
-    # return mean, std
+class LaplacianVESDE(VESDE):
+  def __init__(self, N, sigma_min, sigma_max, lmbda, k, eps=1e-3):
+    super().__init__(sigma_min=sigma_min, sigma_max=sigma_max, N=N)
+    self.lmbda = lmbda
+    self.eps = eps
+    self.k = k
+
+  def compute_laplacians(self, points):
+    neighbors = all_pairs_knn_torch(points, self.k)
+    # TODO: try other weights, e.g., cotangent
+    weights = torch.ones_like(neighbors)
+    laplacians = 1 / self.k * torch.sum(weights*(neighbors - points[:,None]), dim=1)
+    return laplacians
+
+  def sde(self, x, t):
+    drift, diffusion = super().sde(x, t)
+    if self.lmbda != 0:
+      laplacians = self.compute_laplacians(x)
+      drift = drift - self.lmbda*laplacians
+    return drift, diffusion
+
+  def discretize(self, x, t):
+    raise NotImplementedError()
+
+  def forward_steps(self, x, t):
+    # euler_maruyama update
+    def update_fn(self, x, t):
+      dt = 1. / self.N
+      z = torch.randn_like(x)
+      drift, diffusion = self.sde(x, t)
+      x_mean = x + drift * dt
+      x = x_mean + diffusion[:, None, None, None] * np.sqrt(dt) * z
+      return x, x_mean
+
+    timesteps = torch.linspace(self.eps, self.T, self.N, device=t.device)
+    x_t = torch.zeros_like(x)
+    prev_t = 0
+    for ts in timesteps:
+      vec_t = torch.ones(x.shape[0], device=t.device) * ts
+      x, _ = update_fn(self, x, vec_t)
+      sel = torch.logical_and(t > prev_t, t <= ts)
+      x_t[sel] = x[sel]
+      prev_t = ts
+
+    return x_t

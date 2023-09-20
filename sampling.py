@@ -219,7 +219,7 @@ class AncestralSamplingPredictor(Predictor):
   def vesde_update_fn(self, x, t):
     sde = self.sde
     timestep = (t * (sde.N - 1) / sde.T).long()
-    sigma = sde.discrete_sigmas[timestep]
+    sigma = sde.discrete_sigmas.to(timestep)[timestep]
     adjacent_sigma = torch.where(timestep == 0, torch.zeros_like(t), sde.discrete_sigmas.to(t.device)[timestep - 1])
     score = self.score_fn(x, t)
     x_mean = x + score * (sigma ** 2 - adjacent_sigma ** 2)[:, None, None, None]

@@ -16,19 +16,27 @@
 # Lint as: python3
 """Training NCSN++ on CIFAR-10 with VE SDE."""
 from configs.default_cifar10_configs import get_default_configs
+import os.path as osp
 
 
 def get_config():
   config = get_default_configs()
+  config.name = 'esm'
+  config.workdir = osp.join('logs', config.name)
+  config.mode = 'train'
+
   # training
   training = config.training
   training.sde = 'vesde'
-  training.continuous = True
+  training.loss_type = 'esm'
+  training.eval_freq = 500
+  training.n_iters = 200001
+  training.snapshot_freq_for_preemption = 5000
 
   # sampling
   sampling = config.sampling
   sampling.method = 'pc'
-  sampling.predictor = 'reverse_diffusion'
+  sampling.predictor = 'euler_maruyama'
   sampling.corrector = 'langevin'
 
   # model
@@ -40,10 +48,10 @@ def get_config():
   model.nonlinearity = 'swish'
   model.nf = 128
   model.ch_mult = (1, 2, 2, 2)
-  model.num_res_blocks = 4
+  model.num_res_blocks = 2
   model.attn_resolutions = (16,)
   model.resamp_with_conv = True
-  model.conditional = True
+  model.conditional = False
   model.fir = True
   model.fir_kernel = [1, 3, 3, 1]
   model.skip_rescale = True

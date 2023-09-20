@@ -18,6 +18,7 @@ def get_default_configs():
   training.likelihood_weighting = False
   training.continuous = True
   training.reduce_mean = False
+  training.loss_type = 'dsm'
 
   # sampling
   config.sampling = sampling = ml_collections.ConfigDict()
@@ -25,6 +26,7 @@ def get_default_configs():
   sampling.noise_removal = True
   sampling.probability_flow = False
   sampling.snr = 0.16
+  sampling.store_intermediate = False
 
   # evaluation
   config.eval = evaluate = ml_collections.ConfigDict()

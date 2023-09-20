@@ -27,7 +27,7 @@ import tensorflow_gan as tfgan
 import logging
 # Keep the import below for registering all model definitions
 # from models import ddpm, ncsnv2, ncsnpp, ddpm_small
-from models import ddpm, ddpm_small
+from models import ddpm, ddpm_small, ncsnpp
 import losses
 import sampling
 from models import utils as mutils
@@ -93,10 +93,14 @@ def train(config, workdir, writer):
   elif config.training.sde.lower() == 'vesde':
     sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
     sampling_eps = 1e-5
-  elif config.training.sde.lower() == 'laplacian':
+  elif config.training.sde.lower() == 'vplap':
     sde = sde_lib.LaplacianVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales,
                                  lmbda=config.model.lap_lambda, k=config.model.lap_k)
     sampling_eps = 1e-3
+  elif config.training.sde.lower() == 'velap':
+    sde = sde_lib.LaplacianVESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales,
+                                 lmbda=config.model.lap_lambda, k=config.model.lap_k)
+    sampling_eps = 1e-5
   else:
     raise NotImplementedError(f"SDE {config.training.sde} unknown.")
 
@@ -107,10 +111,12 @@ def train(config, workdir, writer):
   likelihood_weighting = config.training.likelihood_weighting
   train_step_fn = losses.get_step_fn(sde, train=True, optimize_fn=optimize_fn,
                                      reduce_mean=reduce_mean, continuous=continuous,
-                                     likelihood_weighting=likelihood_weighting)
+                                     likelihood_weighting=likelihood_weighting,
+                                     loss_type=config.training.loss_type)
   eval_step_fn = losses.get_step_fn(sde, train=False, optimize_fn=optimize_fn,
                                     reduce_mean=reduce_mean, continuous=continuous,
-                                    likelihood_weighting=likelihood_weighting)
+                                    likelihood_weighting=likelihood_weighting,
+                                    loss_type=config.training.loss_type)
 
   # Building sampling functions
   if config.training.snapshot_sampling or config.eval.enable_stats:
@@ -259,6 +265,10 @@ def evaluate(config, workdir, writer, eval_folder="eval"):
     sde = sde_lib.LaplacianVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales,
                                  lmbda=config.model.lap_lambda, k=config.model.lap_k)
     sampling_eps = 1e-3
+  elif config.training.sde.lower() == 'velap':
+    sde = sde_lib.LaplacianVESDE(sigmaa_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales,
+                                 lmbda=config.model.lap_lambda, k=config.model.lap_k)
+    sampling_eps = 1e-5
   else:
     raise NotImplementedError(f"SDE {config.training.sde} unknown.")
 
@@ -272,7 +282,8 @@ def evaluate(config, workdir, writer, eval_folder="eval"):
     eval_step = losses.get_step_fn(sde, train=False, optimize_fn=optimize_fn,
                                    reduce_mean=reduce_mean,
                                    continuous=continuous,
-                                   likelihood_weighting=likelihood_weighting)
+                                   likelihood_weighting=likelihood_weighting,
+                                   loss_type=config.training.loss_type)
 
 
   # Create data loaders for likelihood evaluation. Only evaluate on uniformly dequantized data

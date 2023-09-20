@@ -144,9 +144,6 @@ def get_score_fn(sde, model, train=False, continuous=False):
     def score_fn(x, t):
       # For VP-trained models, t=0 corresponds to the lowest noise level
       labels = t * (sde.N - 1)
-      if isinstance(sde, sde_lib.LaplacianVPSDE):
-        if not x.requires_grad:
-          x.requires_grad_(True)
 
       # Scale neural network output by standard deviation and flip sign
       if continuous or isinstance(sde, sde_lib.subVPSDE):
